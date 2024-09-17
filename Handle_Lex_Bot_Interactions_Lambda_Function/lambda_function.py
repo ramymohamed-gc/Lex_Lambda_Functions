@@ -1,18 +1,20 @@
 import json
 import boto3
 from openai import OpenAI
+import os
 
 # Define the public DNS of your LLM server
-LLM_Server_Public_IPv4_DNS="ec2-35-182-3-130.ca-central-1.compute.amazonaws.com"
+LLM_Server_Public_IP=os.getenv('LLM_Server_Public_IP') 
 
 # Kendra settings
-KENDRA_INDEX_ID = '1516a001-30a4-4f37-b7f6-bf191baff8e4'  # Replace with your Kendra index ID
+KENDRA_INDEX_ID = os.getenv('KENDRA_INDEX_ID') 
 
 
     
 def lambda_handler(event, context):
-    print("Event:")
-    print(event)
+    # print("Event:")
+    # print(event)  
+          
     # Determine if this is a DialogCodeHook or FulfillmentCodeHook
     invocation_source = event['invocationSource']
     
@@ -21,8 +23,8 @@ def lambda_handler(event, context):
     elif invocation_source == 'FulfillmentCodeHook':
         response = handle_fulfillment_code_hook(event)
     
-    print("Response:")
-    print(response)
+    # print("Response:")
+    # print(response)
     return response
 
 def handle_dialog_code_hook(event):
@@ -160,8 +162,8 @@ def fulfill_intent(event, intent_name, slots):
             "content": user_query
         }
         
-        print(f"User Message: {user_query} \n")
-        print(f"System Message: {system_message_content} \n")
+        # print(f"User Message: {user_query} \n")
+        # print(f"System Message: {system_message_content} \n")
         
         llm_answer = query_llm(system_message, user_message)
         
@@ -343,7 +345,7 @@ def handle_fallback_intent(event):
 
 def query_llm(system_message, user_message):
      # Construct the base URL using the DNS
-    base_url = f'http://{LLM_Server_Public_IPv4_DNS}:3000/v1'
+    base_url = f'http://{LLM_Server_Public_IP}:3000/v1'
 
     # Initialize the OpenAI client with the base URL of your hosted model and a dummy API key
     client = OpenAI(base_url=base_url, api_key='na')
