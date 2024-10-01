@@ -1,4 +1,5 @@
 import json
+import requests
 import boto3
 from openai import OpenAI
 import os
@@ -6,7 +7,9 @@ import os
 # Define the public DNS of your LLM server
 LLM_Server_Public_IP=os.getenv('LLM_Server_Public_IP') 
 
-# Kendra settings
+# Jira Cloud credentials and base URL
+JIRA_BASE_URL = os.getenv('JIRA_BASE_URL')  #Jira instance URL
+AUTH_TOKEN = os.getenv('AUTH_TOKEN')        #AUTH Token
 
     
 def lambda_handler(event, context):
@@ -111,18 +114,24 @@ def fulfill_intent(event, intent_name, slots):
     # Example
     if intent_name == 'ProjectUpdate':
         ProjectName = slots['ProjectName']['value']['interpretedValue']
-        
+        Jira_Issue_ID = slots['Jira_Issue_ID']['value']['interpretedValue']
+        projectDescribtion = get_jira_issue_description(Jira_Issue_ID)
+        projectCommentsUpdate = get_jira_issue_comments(Jira_Issue_ID)        
         # Define the user's query based on collected slots
         user_query = (
-            f"I need update regarding this project: {ProjectName}. "
+            f"Please, I need update regarding this project: {ProjectName}. "
         )
         
         # Define the system message for the LLM
-
-        
         system_message_content = (
-                "You are a virtual assistant specializing in providing updates of current projects."
-            )
+            "You are a virtual assistant specializing in providing real-time updates and summaries on Jira project progress, including Epics, Tasks, Sub-tasks, and individual team members. "
+            "Your goal is to help the user efficiently retrieve information from Jira. "
+            "Provide concise yet informative updates, breaking down large answers into manageable sections of no more than 100 words each, separated by '***'. "
+            "If information is missing or incomplete, acknowledge it and ask the user for clarification. "
+            "Prioritize accuracy and clarity in your response."
+            # f"Here is the describtion of the project from Jira: {projectDescribtion}"
+            f"Here is the latest updates: {projectCommentsUpdate}"
+        )
         
         # Define a system message that sets the role of the AI
         system_message = {
@@ -144,7 +153,54 @@ def fulfill_intent(event, intent_name, slots):
         guide_message = llm_answer
 
         return guide_message
-    
+    elif intent_name == 'DescribeProject':
+        ProjectName = slots['ProjectName']['value']['interpretedValue']
+        Jira_Issue_ID = slots['Jira_Issue_ID']['value']['interpretedValue']
+        
+        projectDescribtion = get_jira_issue_description(Jira_Issue_ID)
+                
+        # Define the user's query based on collected slots
+        user_query = (
+            f"Describe to me the following project: {ProjectName}. "
+        )
+        
+        # Define the system message for the LLM
+        system_message_content = (
+            "You are a virtual assistant specializing in providing real-time updates and summaries on Jira project progress, including Epics, Tasks, Sub-tasks, and individual team members. "
+            "Your goal is to help the user efficiently retrieve information from Jira. "
+            "Provide concise yet informative updates, breaking down large answers into manageable sections of no more than 100 words each, separated by '***'. "
+            "If information is missing or incomplete, acknowledge it and ask the user for clarification. "
+            "Prioritize accuracy and clarity in your response."
+            f"Here is the describtion of the project from Jira: {projectDescribtion}"
+        )
+        
+        # Define a system message that sets the role of the AI
+        system_message = {
+            "role": "system",
+            "content": system_message_content
+        }
+        
+        # Define the user message for the LLM
+        user_message = {
+            "role": "user",
+            "content": user_query
+        }
+        
+        # print(f"User Message: {user_query} \n")
+        # print(f"System Message: {system_message_content} \n")
+        
+        llm_answer = query_llm(system_message, user_message)
+        
+        guide_message = llm_answer
+        
+        return guide_message
+    elif intent_name == 'TeamUpdate':
+        return " "
+    elif intent_name == 'UserUpdate':
+        return " "
+    elif intent_name == 'TaskUpdate':
+        return " "
+
     # Add additional intent fulfillment logic as needed
     return "Intent fulfilled."
 
@@ -377,3 +433,87 @@ def close(session_attributes, intent_name, slots, fulfillment_state, dialogActio
         'messages': messages
     }
 
+### Jira related functions
+
+def get_jira_issue(issue_key):
+    """
+    Get issue details from Jira using the issue key (e.g., EPIC-123, TASK-456).
+    """
+    url = f"{JIRA_BASE_URL}/rest/api/3/issue/{issue_key}"   
+    headers = {
+      "Accept": "application/json",
+      "Authorization": f"Basic {AUTH_TOKEN}"
+    }
+    response = requests.request("GET", url, headers=headers)
+    if response.status_code == 200:
+        return response.json()
+    else:
+        return None
+    
+def get_jira_issue_comments(issue_key):
+    """
+    Get comments from a Jira issue using the issue key (e.g., EPIC-123, TASK-456).
+    """
+    url = f"{JIRA_BASE_URL}/rest/api/3/issue/{issue_key}/comment"   
+    headers = {
+        "Accept": "application/json",
+        "Authorization": f"Basic {AUTH_TOKEN}"
+    }
+    
+    response = requests.request("GET", url, headers=headers)
+    
+    if response.status_code == 200:
+        comments_data = response.json()
+        
+        # Extract and format the comments
+        comments_list = []
+        for comment in comments_data['comments']:
+            comment_body = comment['body']['content'][0]['content'][0]['text']  # Extracting the text content
+            author = comment['author']['displayName']
+            created_at = comment['created']
+            
+            # Append a formatted comment to the list
+            comments_list.append({
+                "author": author,
+                "created_at": created_at,
+                "comment_body": comment_body
+            })
+        
+        return comments_list
+    else:
+        # If the request fails, return None or an error message
+        return f"Failed to retrieve comments: {response.status_code}, {response.text}"
+
+def get_jira_issue_description(issue_key):
+    """
+    Get the description of a Jira issue using the issue key (e.g., EPIC-123, TASK-456).
+    """
+    url = f"{JIRA_BASE_URL}/rest/api/3/issue/{issue_key}"   
+    headers = {
+        "Accept": "application/json",
+        "Authorization": f"Basic {AUTH_TOKEN}"
+    }
+    
+    response = requests.request("GET", url, headers=headers)
+    
+    if response.status_code == 200:
+        issue_data = response.json()
+        
+        # Extract the issue description from the response
+        issue_description = issue_data['fields'].get('description', {}).get('content', [])
+        
+        # If description content is not empty, extract the text
+        description_text = ''
+        if issue_description:
+            # Iterate over the content to extract text
+            for content_block in issue_description:
+                if 'content' in content_block:
+                    for text_block in content_block['content']:
+                        if text_block.get('text'):
+                            description_text += text_block['text'] + '\n'
+        
+        # Return the extracted description
+        return description_text.strip() if description_text else "No description available for this issue."
+    else:
+        # Handle any errors
+        return f"Failed to retrieve issue description: {response.status_code}, {response.text}"
